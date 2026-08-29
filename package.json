@@ -9,6 +9,7 @@
     "migration:down": "bun run scripts/migrate.ts down"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1121.0",
     "@mikro-orm/core": "^7.1.14",
     "@mikro-orm/migrations": "^7.1.14",
     "@mikro-orm/postgresql": "^7.1.14",
