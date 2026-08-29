@@ -3,7 +3,7 @@ import { EntityManager } from "@mikro-orm/postgresql";
 import { WalletLedgerEntry } from "../../domain/walletLedgerEntry";
 import { WalletLedgerEntryRepository } from "../../ports/walletLedgerEntry.repository";
 import { WalletLedgerEntryEntity } from "./entities/walletLedgerEntry.entity";
-import { walletLedgerEntryToEntityData } from "./walletLedgerEntry.mapper";
+import { walletLedgerEntryToEntityData, walletLedgerEntryToDomain } from "./walletLedgerEntry.mapper";
 
 @Injectable()
 export class MikroWalletLedgerEntryRepository extends WalletLedgerEntryRepository {
@@ -14,5 +14,10 @@ export class MikroWalletLedgerEntryRepository extends WalletLedgerEntryRepositor
   async create(entry: WalletLedgerEntry): Promise<void> {
     this.em.create(WalletLedgerEntryEntity, walletLedgerEntryToEntityData(entry));
     await this.em.flush();
+  }
+
+  async findByTransactionId(transactionId: string): Promise<WalletLedgerEntry | null> {
+    const entity = await this.em.findOne(WalletLedgerEntryEntity, { transactionId });
+    return entity ? walletLedgerEntryToDomain(entity) : null;
   }
 }

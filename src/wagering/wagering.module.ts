@@ -15,6 +15,8 @@ import { UuidV7IdGenerator } from "./infrastructure/uuidV7IdGenerator";
 
 import { OpenWalletUseCase } from "./application/openWallet.useCase";
 
+import { ProcessWagerTransactionUseCase } from "./application/processWagerTransaction.useCase";
+
 @Module({
   imports: [PersistenceModule],
   providers: [
@@ -24,7 +26,8 @@ import { OpenWalletUseCase } from "./application/openWallet.useCase";
     { provide: UnitOfWork, useClass: MikroUnitOfWork },
     { provide: IdGenerator, useClass: UuidV7IdGenerator },
     OpenWalletUseCase,
+    ProcessWagerTransactionUseCase,
   ],
-  exports: [OpenWalletUseCase],
+  exports: [OpenWalletUseCase, ProcessWagerTransactionUseCase],
 })
 export class WageringModule {}
