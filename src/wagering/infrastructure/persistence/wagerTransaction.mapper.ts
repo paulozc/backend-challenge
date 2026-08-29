@@ -22,6 +22,8 @@ export function wagerTransactionToDomain(entity: WagerTransactionEntity): WagerT
     referenceTransactionId: entity.referenceTransaction ?? undefined,
     failureCode: entity.failureCode ?? undefined,
     processedAt: entity.processedAt ?? undefined,
+    referenceRetryAttempts: entity.referenceRetryAttempts,
+    nextReferenceRetryAt: entity.nextReferenceRetryAt ?? undefined,
   });
 }
 
@@ -51,6 +53,8 @@ export function wagerTransactionToEntityData(tx: WagerTransaction) {
     failureCode: tx.failureCode ?? null,
     createdAt: tx.createdAt,
     processedAt: tx.processedAt ?? null,
+    referenceRetryAttempts: tx.referenceRetryAttempts,
+    nextReferenceRetryAt: tx.nextReferenceRetryAt ?? null,
   };
 }
 
@@ -63,4 +67,6 @@ export function applyWagerTransactionToEntity(tx: WagerTransaction, entity: Wage
   entity.referenceTransaction = tx.referenceTransactionId ?? null;
   entity.failureCode = tx.failureCode ?? null;
   entity.processedAt = tx.processedAt ?? null;
+  entity.referenceRetryAttempts = tx.referenceRetryAttempts;
+  entity.nextReferenceRetryAt = tx.nextReferenceRetryAt ?? null;
 }

@@ -25,6 +25,8 @@ export const WagerTransactionSchema = defineEntity({
     failureCode: p.string().nullable(),
     createdAt: p.datetime(),
     processedAt: p.datetime().nullable(),
+    referenceRetryAttempts: p.integer().default(0),
+    nextReferenceRetryAt: p.datetime().nullable(),
   },
   uniques: [
     { name: "wt_idempotency_key_uq", properties: ["idempotencyKey"] },
@@ -43,10 +45,10 @@ export const WagerTransactionSchema = defineEntity({
     },
   ],
   indexes: [
-    // pro worker da seção 7.1 escanear só o que precisa reprocessar
+    // pro worker da seção 7.1 escanear só o que precisa reprocessar, já ordenado por prioridade de retry
     {
       name: "wt_pending_reference_idx",
-      properties: ["createdAt"],
+      properties: ["nextReferenceRetryAt", "createdAt"],
       where: { status: WagerTransactionStatus.PendingReference },
     },
   ],

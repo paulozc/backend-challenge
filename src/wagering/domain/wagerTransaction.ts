@@ -21,6 +21,11 @@ export enum WagerTransactionStatus {
 // taxonomia provisória — formalizamos de verdade na seção 7.2, quando chegar a hora
 export type FailureCode = string;
 
+// backoff do worker de reprocessamento de PENDING_REFERENCE (seção 7.1) — 5s, 10s, 20s,
+// 40s, 80s, ~2.7min, ~5.3min, 10min(teto) = ~20min de janela total antes de desistir
+const REFERENCE_RETRY_BASE_MS = 5_000;
+const REFERENCE_RETRY_MAX_MS = 10 * 60 * 1000;
+
 interface CreateWagerTransactionProps {
   id: string;
   providerId: string;
@@ -42,6 +47,8 @@ interface WagerTransactionState extends CreateWagerTransactionProps {
   referenceTransactionId?: string;
   failureCode?: FailureCode;
   processedAt?: Date;
+  referenceRetryAttempts?: number;
+  nextReferenceRetryAt?: Date;
 }
 
 export class MissingReferenceError extends Error {}
@@ -75,6 +82,8 @@ export class WagerTransaction {
     private _referenceTransactionId?: string,
     private _failureCode?: FailureCode,
     private _processedAt?: Date,
+    private _referenceRetryAttempts: number = 0,
+    private _nextReferenceRetryAt?: Date,
   ) {}
 
   static create(props: CreateWagerTransactionProps): WagerTransaction {
@@ -89,7 +98,7 @@ export class WagerTransaction {
       props.id, props.providerId, props.externalTransactionId, props.idempotencyKey, props.payloadHash,
       props.walletId, props.playerId, props.roundId, props.gameId, props.kind, props.money,
       props.referenceExternalTransactionId, props.createdAt,
-      WagerTransactionStatus.Pending, undefined, undefined, undefined,
+      WagerTransactionStatus.Pending, undefined, undefined, undefined, 0, undefined,
     );
   }
 
@@ -100,6 +109,7 @@ export class WagerTransaction {
       state.walletId, state.playerId, state.roundId, state.gameId, state.kind, state.money,
       state.referenceExternalTransactionId, state.createdAt,
       state.status, state.referenceTransactionId, state.failureCode, state.processedAt,
+      state.referenceRetryAttempts ?? 0, state.nextReferenceRetryAt,
     );
   }
 
@@ -107,6 +117,8 @@ export class WagerTransaction {
   get referenceTransactionId(): string | undefined { return this._referenceTransactionId; }
   get failureCode(): FailureCode | undefined { return this._failureCode; }
   get processedAt(): Date | undefined { return this._processedAt; }
+  get referenceRetryAttempts(): number { return this._referenceRetryAttempts; }
+  get nextReferenceRetryAt(): Date | undefined { return this._nextReferenceRetryAt; }
 
   private assertNotTerminal(): void {
     if (this.isTerminal()) {
@@ -124,6 +136,36 @@ export class WagerTransaction {
   markPendingReference(): void {
     this.assertNotTerminal();
     this._status = WagerTransactionStatus.PendingReference;
+  }
+
+  /**
+   * Chamado pelo worker de reprocessamento (seção 7.1) quando tenta resolver a
+   * referência de novo mas ela ainda não chegou. Mesmo formato de backoff exponencial
+   * já usado em OutboxMessage.scheduleRetry(), mas com base maior (5s) e teto maior
+   * (10min) — justificativa: esperar uma transação relacionada do MESMO provider
+   * chegar pode legitimamente levar mais tempo que republicar um evento de integração,
+   * já que depende de todo o pipeline de entrega do provider, não só do nosso outbox.
+   */
+  scheduleReferenceRetry(now: Date): void {
+    if (this._status !== WagerTransactionStatus.PendingReference) {
+      throw new InvalidTransactionStateError(
+        `só é possível reagendar retry de referência em PENDING_REFERENCE (atual: ${this._status})`,
+      );
+    }
+    this._referenceRetryAttempts += 1;
+    const backoffMs = Math.min(2 ** this._referenceRetryAttempts * REFERENCE_RETRY_BASE_MS, REFERENCE_RETRY_MAX_MS);
+    this._nextReferenceRetryAt = new Date(now.getTime() + backoffMs);
+  }
+
+  /** true se ainda não passou do limite de tentativas — usado pelo worker pra decidir entre reagendar ou desistir. */
+  hasReferenceRetriesLeft(maxAttempts: number): boolean {
+    return this._referenceRetryAttempts < maxAttempts;
+  }
+
+  isReferenceRetryDue(now: Date): boolean {
+    if (this._status !== WagerTransactionStatus.PendingReference) return false;
+    if (!this._nextReferenceRetryAt) return true; // nunca tentou de novo — pronta pra primeira tentativa do worker
+    return this._nextReferenceRetryAt.getTime() <= now.getTime();
   }
 
   reject(code: FailureCode): void {

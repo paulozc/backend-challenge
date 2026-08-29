@@ -19,6 +19,7 @@ import { MikroUnitOfWork } from "./infrastructure/persistence/mikroUnitOfWork";
 import { UuidV7IdGenerator } from "./infrastructure/uuidV7IdGenerator";
 import { SqsEventPublisher } from "./infrastructure/messaging/sqsEventPublisher";
 import { OutboxPublisherWorker } from "./infrastructure/messaging/outboxPublisher.worker";
+import { PendingReferenceRetryWorker } from "./infrastructure/messaging/pendingReferenceRetry.worker";
 import { WagerTransactionMessageHandler } from "./infrastructure/messaging/wagerTransactionMessage.handler";
 
 import { OpenWalletUseCase } from "./application/openWallet.useCase";
@@ -42,8 +43,9 @@ import { ProviderWagerTransactionsController } from "./infrastructure/http/provi
     OpenWalletUseCase,
     ProcessWagerTransactionUseCase,
     OutboxPublisherWorker,
+    PendingReferenceRetryWorker,
     WagerTransactionMessageHandler,
   ],
-  exports: [OpenWalletUseCase, ProcessWagerTransactionUseCase, OutboxPublisherWorker, WagerTransactionMessageHandler],
+  exports: [OpenWalletUseCase, ProcessWagerTransactionUseCase, OutboxPublisherWorker, PendingReferenceRetryWorker, WagerTransactionMessageHandler],
 })
 export class WageringModule {}

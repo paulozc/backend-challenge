@@ -31,7 +31,14 @@ export const WagerFailureCode = {
   ReferenceAlreadyReversed: "REFERENCE_ALREADY_REVERSED",
   // distinto de InsufficientFunds de propósito (seção 7): são situações operacionalmente diferentes
   ReversalWouldOverdraw: "REVERSAL_WOULD_OVERDRAW",
+  // esgotou o limite de tentativas do worker de reprocessamento (seção 7.1) sem achar a referência
+  ReferenceNeverArrived: "REFERENCE_NEVER_ARRIVED",
 } as const satisfies Record<string, FailureCode>;
+
+// seção 7.1: limite de tentativas antes de desistir e rejeitar. Combinado com o backoff
+// de WagerTransaction (5s a 10min), dá uma janela de ~20min e ~8 tentativas antes de
+// concluir que a referência genuinamente nunca vai chegar.
+const MAX_REFERENCE_RETRY_ATTEMPTS = 8;
 
 export class WalletNotFoundError extends Error {}
 export class IdempotencyConflictError extends Error {}
@@ -369,7 +376,7 @@ export class ProcessWagerTransactionUseCase {
     );
 
     // referência ainda não chegou (entrega fora de ordem) — não é erro, fica pendente pro
-    // worker de reprocessamento (seção 7.1, ainda não construído) tentar de novo depois.
+    // worker de reprocessamento (seção 7.1) tentar de novo depois.
     if (!reference) {
       transaction.markPendingReference();
       await this.wagerTransactionRepository.save(transaction);
@@ -382,15 +389,32 @@ export class ProcessWagerTransactionUseCase {
       };
     }
 
+    return this.applyReversalWithReference(transaction, wallet, reference, money, kind, at);
+  }
+
+  /**
+   * Núcleo de validação + aplicação de REFUND/ROLLBACK, assumindo que a referência JÁ foi
+   * encontrada. Compartilhado entre o processamento inicial (processReversal, acima) e o
+   * worker de reprocessamento de PENDING_REFERENCE (retryPendingReference, abaixo) — a
+   * mesma cadeia de regras vale não importa QUANDO a referência é finalmente resolvida.
+   */
+  private async applyReversalWithReference(
+    transaction: WagerTransaction,
+    wallet: Wallet,
+    reference: WagerTransaction,
+    money: Money,
+    kind: typeof WagerTransactionKind.Refund | typeof WagerTransactionKind.Rollback,
+    at: Date,
+  ): Promise<SubmitWagerTransactionOutput> {
     if (reference.status !== WagerTransactionStatus.Processed) {
       return this.rejectAndSave(transaction, WagerFailureCode.ReferenceNotProcessed, wallet, at);
     }
 
     const belongsToSameContext =
-      reference.playerId === input.playerId &&
-      reference.walletId === input.walletId &&
+      reference.playerId === transaction.playerId &&
+      reference.walletId === transaction.walletId &&
       reference.money.currency === money.currency &&
-      reference.roundId === input.roundId;
+      reference.roundId === transaction.roundId;
     if (!belongsToSameContext) {
       return this.rejectAndSave(transaction, WagerFailureCode.ReferenceMismatch, wallet, at);
     }
@@ -446,6 +470,53 @@ export class ProcessWagerTransactionUseCase {
       }
       throw err;
     }
+  }
+
+  /**
+   * Chamado pelo worker de reprocessamento de PENDING_REFERENCE (seção 7.1). Tenta resolver
+   * a referência de novo; se ainda não achou, reagenda com backoff ou desiste (REJECTED)
+   * se esgotou o limite de tentativas.
+   */
+  async retryPendingReference(transactionId: string): Promise<void> {
+    await this.unitOfWork.transactional(async () => {
+      const transaction = await this.wagerTransactionRepository.findById(transactionId);
+      if (!transaction || transaction.status !== WagerTransactionStatus.PendingReference) {
+        return; // já não está mais pendente — outro worker pode ter resolvido primeiro
+      }
+
+      const wallet = await this.walletRepository.findByIdForUpdate(transaction.walletId);
+      if (!wallet) {
+        throw new WalletNotFoundError(`wallet ${transaction.walletId} não encontrada ao reprocessar ${transactionId}`);
+      }
+
+      const reference = await this.wagerTransactionRepository.findByProviderAndExternalId(
+        transaction.providerId,
+        transaction.referenceExternalTransactionId!,
+      );
+
+      const at = new Date();
+
+      if (!reference) {
+        if (!transaction.hasReferenceRetriesLeft(MAX_REFERENCE_RETRY_ATTEMPTS)) {
+          transaction.reject(WagerFailureCode.ReferenceNeverArrived);
+          await this.wagerTransactionRepository.save(transaction);
+          await this.emitEvent(WagerTransactionRejected.from(transaction, this.newEventContext(at, transaction.id)));
+        } else {
+          transaction.scheduleReferenceRetry(at);
+          await this.wagerTransactionRepository.save(transaction);
+        }
+        return;
+      }
+
+      await this.applyReversalWithReference(
+        transaction,
+        wallet,
+        reference,
+        transaction.money,
+        transaction.kind as typeof WagerTransactionKind.Refund | typeof WagerTransactionKind.Rollback,
+        at,
+      );
+    });
   }
 
   private async buildReplayResponse(existing: WagerTransaction): Promise<SubmitWagerTransactionOutput> {

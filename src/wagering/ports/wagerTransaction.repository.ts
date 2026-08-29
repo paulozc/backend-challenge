@@ -13,4 +13,7 @@ export abstract class WagerTransactionRepository {
 
   /** Cria se ainda não existe, atualiza (transição de status) se já existe. */
   abstract save(transaction: WagerTransaction): Promise<void>;
+
+  /** PENDING_REFERENCE prontas pro worker de reprocessamento tentar de novo (seção 7.1). */
+  abstract findDuePendingReferences(limit: number): Promise<WagerTransaction[]>;
 }

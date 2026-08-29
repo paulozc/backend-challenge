@@ -51,4 +51,17 @@ export class MikroWagerTransactionRepository extends WagerTransactionRepository 
     }
     await this.em.flush();
   }
+
+  async findDuePendingReferences(limit: number): Promise<WagerTransaction[]> {
+    const now = new Date();
+    const entities = await this.em.find(
+      WagerTransactionEntity,
+      {
+        status: WagerTransactionStatus.PendingReference,
+        $or: [{ nextReferenceRetryAt: null }, { nextReferenceRetryAt: { $lte: now } }],
+      },
+      { orderBy: { nextReferenceRetryAt: "asc", createdAt: "asc" }, limit },
+    );
+    return entities.map(wagerTransactionToDomain);
+  }
 }
