@@ -9,6 +9,10 @@
     "allowJs": true,
     "types": ["bun"],
 
+    // NestJS usa decorators clássicos + reflect-metadata (diferente do MikroORM/defineEntity)
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
