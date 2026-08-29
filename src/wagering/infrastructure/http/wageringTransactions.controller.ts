@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Headers, NotFoundException, Post, Res } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, Post, Res } from "@nestjs/common";
 import type { Response } from "express";
 
 import {
@@ -6,8 +6,10 @@ import {
   WalletNotFoundError,
   IdempotencyConflictError,
 } from "../../application/processWagerTransaction.useCase";
+import { WagerTransactionRepository } from "../../ports/wagerTransaction.repository";
 import { WagerTransactionStatus, type WagerTransactionKind } from "../../domain/wagerTransaction";
 import { SubmitWagerTransactionDto } from "./dto/submitWagerTransaction.dto";
+import { presentWagerTransaction } from "./presenters/wagerTransaction.presenter";
 
 /**
  * Mapeamento de status de negócio -> status HTTP (seção 9: a API precisa distinguir
@@ -30,7 +32,19 @@ function httpStatusForWagerStatus(status: WagerTransactionStatus): number {
 
 @Controller("wagering/transactions")
 export class WageringTransactionsController {
-  constructor(private readonly processWagerTransaction: ProcessWagerTransactionUseCase) {}
+  constructor(
+    private readonly processWagerTransaction: ProcessWagerTransactionUseCase,
+    private readonly wagerTransactionRepository: WagerTransactionRepository,
+  ) {}
+
+  @Get(":transactionId")
+  async getById(@Param("transactionId") transactionId: string) {
+    const transaction = await this.wagerTransactionRepository.findById(transactionId);
+    if (!transaction) {
+      throw new NotFoundException(`transação ${transactionId} não encontrada`);
+    }
+    return presentWagerTransaction(transaction);
+  }
 
   @Post()
   async submit(

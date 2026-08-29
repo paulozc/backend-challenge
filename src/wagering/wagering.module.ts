@@ -18,11 +18,12 @@ import { UuidV7IdGenerator } from "./infrastructure/uuidV7IdGenerator";
 import { OpenWalletUseCase } from "./application/openWallet.useCase";
 import { ProcessWagerTransactionUseCase } from "./application/processWagerTransaction.useCase";
 import { WalletsController } from "./infrastructure/http/wallets.controller";
-import { WageringTransactionsController } from "./infrastructure/http/wagering-transactions.controller";
+import { WageringTransactionsController } from "./infrastructure/http/wageringTransactions.controller";
+import { ProviderWagerTransactionsController } from "./infrastructure/http/providerWagerTransactions.controller";
 
 @Module({
   imports: [PersistenceModule],
-  controllers: [WalletsController, WageringTransactionsController],
+  controllers: [WalletsController, WageringTransactionsController, ProviderWagerTransactionsController],
   providers: [
     { provide: WalletRepository, useClass: MikroWalletRepository },
     { provide: WagerTransactionRepository, useClass: MikroWagerTransactionRepository },
