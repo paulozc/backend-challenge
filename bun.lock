@@ -7,15 +7,15 @@
       "dependencies": {
         "@mikro-orm/core": "^7.1.14",
         "@mikro-orm/postgresql": "^7.1.14",
-        "decimal.js": "^10.4.3",
+        "decimal.js": "^10.4.3"
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "latest"
       },
       "peerDependencies": {
-        "typescript": "^7",
-      },
-    },
+        "typescript": "^7"
+      }
+    }
   },
   "packages": {
     "@mikro-orm/core": ["@mikro-orm/core@7.1.14", "", { "peerDependencies": { "dataloader": "2.2.3" }, "optionalPeers": ["dataloader"] }, "sha512-q/2UWNX7Z9ZLgwkG6yHtKki3RnQ/ETygrSLXfvBXnaXPQvOY/G9PK/RJLoclo7UtHiHIOmbh/iiwiXiErfpBaQ=="],
@@ -112,6 +112,6 @@
 
     "pg-types/postgres-date": ["postgres-date@1.0.7", "", {}, "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q=="],
 
-    "pg-types/postgres-interval": ["postgres-interval@1.2.0", "", { "dependencies": { "xtend": "^4.0.0" } }, "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="],
+    "pg-types/postgres-interval": ["postgres-interval@1.2.0", "", { "dependencies": { "xtend": "^4.0.0" } }, "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="]
   }
 }
