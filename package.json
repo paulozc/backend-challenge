@@ -4,19 +4,21 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "start": "bun run src/main.ts",
     "migration:up": "bun run scripts/migrate.ts up",
     "migration:down": "bun run scripts/migrate.ts down"
   },
   "dependencies": {
-    "decimal.js": "^10.4.3",
     "@mikro-orm/core": "^7.1.14",
-    "@mikro-orm/postgresql": "^7.1.14",
     "@mikro-orm/migrations": "^7.1.14",
+    "@mikro-orm/postgresql": "^7.1.14",
     "@nestjs/common": "^12.0.1",
     "@nestjs/core": "^12.0.1",
+    "@nestjs/platform-express": "^12.0.1",
+    "decimal.js": "^10.4.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "uuid":"^14.0.2"
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@mikro-orm/cli": "^7.1.14",
