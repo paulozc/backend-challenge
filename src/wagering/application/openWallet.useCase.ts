@@ -4,6 +4,7 @@ import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { WalletRepository } from "../ports/wallet.repository";
 import { WagerTransactionRepository } from "../ports/wagerTransaction.repository";
 import { WalletLedgerEntryRepository } from "../ports/walletLedgerEntry.repository";
+import { OutboxMessageRepository } from "../ports/outboxMessage.repository";
 import { UnitOfWork } from "../ports/unitOfWork";
 import { IdGenerator } from "../ports/idGenerator";
 
@@ -11,6 +12,9 @@ import { Wallet } from "../domain/wallet";
 import { Money, type MoneyProps } from "../domain/money";
 import { WagerTransaction, WagerTransactionKind } from "../domain/wagerTransaction";
 import { WalletLedgerEntry, LedgerDirection } from "../domain/walletLedgerEntry";
+import { OutboxMessage } from "../domain/outboxMessage";
+import { WagerTransactionProcessed } from "../domain/events/wagerTransactionProcessed";
+import { WalletBalanceChanged } from "../domain/events/walletBalanceChanged";
 
 export class WalletAlreadyExistsError extends Error {}
 
@@ -32,6 +36,7 @@ export class OpenWalletUseCase {
     private readonly walletRepository: WalletRepository,
     private readonly wagerTransactionRepository: WagerTransactionRepository,
     private readonly walletLedgerEntryRepository: WalletLedgerEntryRepository,
+    private readonly outboxMessageRepository: OutboxMessageRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly idGenerator: IdGenerator,
   ) {}
@@ -58,7 +63,7 @@ export class OpenWalletUseCase {
       await this.unitOfWork.transactional(async () => {
         await this.walletRepository.save(wallet);
 
-        // só gera OPENING + lançamento se o saldo inicial for maior que zero (seção 9)
+        // só gera OPENING + lançamento (+ eventos) se o saldo inicial for maior que zero (seção 9)
         if (initialBalance.isPositive()) {
           const at = wallet.updatedAt;
 
@@ -93,6 +98,26 @@ export class OpenWalletUseCase {
 
           await this.wagerTransactionRepository.save(openingTransaction);
           await this.walletLedgerEntryRepository.create(openingEntry);
+
+          // correlationId = id da própria transação OPENING, mesmo critério do ProcessWagerTransactionUseCase
+          await this.outboxMessageRepository.create(
+            OutboxMessage.enqueue(
+              WagerTransactionProcessed.from(openingTransaction, {
+                eventId: this.idGenerator.generate(),
+                correlationId: openingTransaction.id,
+                occurredAt: at,
+              }),
+            ),
+          );
+          await this.outboxMessageRepository.create(
+            OutboxMessage.enqueue(
+              WalletBalanceChanged.from(wallet, openingEntry, {
+                eventId: this.idGenerator.generate(),
+                correlationId: openingTransaction.id,
+                occurredAt: at,
+              }),
+            ),
+          );
         }
       });
     } catch (err) {

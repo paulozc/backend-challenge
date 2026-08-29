@@ -4,6 +4,7 @@ import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { WalletRepository } from "../ports/wallet.repository";
 import { WagerTransactionRepository } from "../ports/wagerTransaction.repository";
 import { WalletLedgerEntryRepository } from "../ports/walletLedgerEntry.repository";
+import { OutboxMessageRepository } from "../ports/outboxMessage.repository";
 import { UnitOfWork } from "../ports/unitOfWork";
 import { IdGenerator } from "../ports/idGenerator";
 
@@ -11,6 +12,13 @@ import { Money, type MoneyProps } from "../domain/money";
 import { Wallet, InsufficientFundsError } from "../domain/wallet";
 import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus, type FailureCode } from "../domain/wagerTransaction";
 import { LedgerDirection } from "../domain/walletLedgerEntry";
+import { OutboxMessage } from "../domain/outboxMessage";
+import type { IntegrationEvent } from "../domain/integrationEvent";
+import type { EventContext } from "../domain/events/eventContext";
+import { WagerTransactionProcessed } from "../domain/events/wagerTransactionProcessed";
+import { WagerTransactionRejected } from "../domain/events/wagerTransactionRejected";
+import { WagerTransactionPendingReference } from "../domain/events/wagerTransactionPendingReference";
+import { WalletBalanceChanged } from "../domain/events/walletBalanceChanged";
 
 import { computePayloadHash } from "./payloadHash";
 
@@ -55,9 +63,20 @@ export class ProcessWagerTransactionUseCase {
     private readonly walletRepository: WalletRepository,
     private readonly wagerTransactionRepository: WagerTransactionRepository,
     private readonly walletLedgerEntryRepository: WalletLedgerEntryRepository,
+    private readonly outboxMessageRepository: OutboxMessageRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly idGenerator: IdGenerator,
   ) {}
+
+  /** correlationId = id da própria WagerTransaction — provisório até termos um id de
+   * requisição/mensagem de entrada vindo da camada HTTP/SQS pra propagar aqui. */
+  private newEventContext(at: Date, correlationId: string): EventContext {
+    return { eventId: this.idGenerator.generate(), correlationId, occurredAt: at };
+  }
+
+  private async emitEvent(event: IntegrationEvent<unknown>): Promise<void> {
+    await this.outboxMessageRepository.create(OutboxMessage.enqueue(event));
+  }
 
   async execute(input: SubmitWagerTransactionInput): Promise<SubmitWagerTransactionOutput> {
     const money = Money.from(input.money);
@@ -167,6 +186,8 @@ export class ProcessWagerTransactionUseCase {
       await this.walletRepository.save(wallet);
       await this.wagerTransactionRepository.save(transaction);
       await this.walletLedgerEntryRepository.create(entry);
+      await this.emitEvent(WagerTransactionProcessed.from(transaction, this.newEventContext(at, transaction.id)));
+      await this.emitEvent(WalletBalanceChanged.from(wallet, entry, this.newEventContext(at, transaction.id)));
 
       return {
         transactionId: transaction.id,
@@ -176,14 +197,7 @@ export class ProcessWagerTransactionUseCase {
       };
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
-        transaction.reject(WagerFailureCode.InsufficientFunds);
-        await this.wagerTransactionRepository.save(transaction);
-        return {
-          transactionId: transaction.id,
-          status: transaction.status,
-          balance: wallet.balance.toJSON(), // saldo não mudou — debit() não chegou a mutar nada
-          idempotentReplay: false,
-        };
+        return this.rejectAndSave(transaction, WagerFailureCode.InsufficientFunds, wallet, at);
       }
       throw err;
     }
@@ -234,14 +248,7 @@ export class ProcessWagerTransactionUseCase {
           reference.roundId === input.roundId;
 
         if (!belongsToSameContext) {
-          transaction.reject(WagerFailureCode.ReferenceMismatch);
-          await this.wagerTransactionRepository.save(transaction);
-          return {
-            transactionId: transaction.id,
-            status: transaction.status,
-            balance: wallet.balance.toJSON(),
-            idempotentReplay: false,
-          };
+          return this.rejectAndSave(transaction, WagerFailureCode.ReferenceMismatch, wallet, at);
         }
         referenceTransactionId = reference.id;
       }
@@ -259,6 +266,8 @@ export class ProcessWagerTransactionUseCase {
     await this.walletRepository.save(wallet);
     await this.wagerTransactionRepository.save(transaction);
     await this.walletLedgerEntryRepository.create(entry);
+    await this.emitEvent(WagerTransactionProcessed.from(transaction, this.newEventContext(at, transaction.id)));
+    await this.emitEvent(WalletBalanceChanged.from(wallet, entry, this.newEventContext(at, transaction.id)));
 
     return {
       transactionId: transaction.id,
@@ -298,6 +307,7 @@ export class ProcessWagerTransactionUseCase {
 
     // sem wallet.save(), sem ledger entry — LOSS não afeta saldo (affectsBalance() === false)
     await this.wagerTransactionRepository.save(transaction);
+    await this.emitEvent(WagerTransactionProcessed.from(transaction, this.newEventContext(at, transaction.id)));
 
     return {
       transactionId: transaction.id,
@@ -311,9 +321,11 @@ export class ProcessWagerTransactionUseCase {
     transaction: WagerTransaction,
     code: FailureCode,
     wallet: Wallet,
+    at: Date,
   ): Promise<SubmitWagerTransactionOutput> {
     transaction.reject(code);
     await this.wagerTransactionRepository.save(transaction);
+    await this.emitEvent(WagerTransactionRejected.from(transaction, this.newEventContext(at, transaction.id)));
     return {
       transactionId: transaction.id,
       status: transaction.status,
@@ -361,6 +373,7 @@ export class ProcessWagerTransactionUseCase {
     if (!reference) {
       transaction.markPendingReference();
       await this.wagerTransactionRepository.save(transaction);
+      await this.emitEvent(WagerTransactionPendingReference.from(transaction, this.newEventContext(at, transaction.id)));
       return {
         transactionId: transaction.id,
         status: transaction.status,
@@ -370,7 +383,7 @@ export class ProcessWagerTransactionUseCase {
     }
 
     if (reference.status !== WagerTransactionStatus.Processed) {
-      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceNotProcessed, wallet);
+      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceNotProcessed, wallet, at);
     }
 
     const belongsToSameContext =
@@ -379,7 +392,7 @@ export class ProcessWagerTransactionUseCase {
       reference.money.currency === money.currency &&
       reference.roundId === input.roundId;
     if (!belongsToSameContext) {
-      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceMismatch, wallet);
+      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceMismatch, wallet, at);
     }
 
     // REFUND só referencia BET. ROLLBACK referencia BET, WIN ou REFUND (seção 7).
@@ -388,12 +401,12 @@ export class ProcessWagerTransactionUseCase {
         ? [WagerTransactionKind.Bet]
         : [WagerTransactionKind.Bet, WagerTransactionKind.Win, WagerTransactionKind.Refund];
     if (!allowedReferenceKinds.includes(reference.kind)) {
-      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceKindNotAllowed, wallet);
+      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceKindNotAllowed, wallet, at);
     }
 
     // reversão parcial está fora de escopo — valor precisa ser exatamente igual ao da referência
     if (!money.equals(reference.money)) {
-      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceAmountMismatch, wallet);
+      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceAmountMismatch, wallet, at);
     }
 
     // checagem proativa, segura porque o lock pessimista da wallet acima já serializa
@@ -401,7 +414,7 @@ export class ProcessWagerTransactionUseCase {
     // o índice único parcial do banco continua como rede de segurança, não o mecanismo principal.
     const alreadyReversed = await this.wagerTransactionRepository.findProcessedReversalByReference(reference.id, kind);
     if (alreadyReversed) {
-      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceAlreadyReversed, wallet);
+      return this.rejectAndSave(transaction, WagerFailureCode.ReferenceAlreadyReversed, wallet, at);
     }
 
     const direction = transaction.ledgerDirectionFor(reference);
@@ -415,6 +428,8 @@ export class ProcessWagerTransactionUseCase {
       await this.walletRepository.save(wallet);
       await this.wagerTransactionRepository.save(transaction);
       await this.walletLedgerEntryRepository.create(entry);
+      await this.emitEvent(WagerTransactionProcessed.from(transaction, this.newEventContext(at, transaction.id)));
+      await this.emitEvent(WalletBalanceChanged.from(wallet, entry, this.newEventContext(at, transaction.id)));
 
       return {
         transactionId: transaction.id,
@@ -427,7 +442,7 @@ export class ProcessWagerTransactionUseCase {
         // distinto de InsufficientFunds de uma BET — "reversão causaria saldo negativo" é
         // operacionalmente diferente de "aposta sem saldo" (seção 7), mesmo sendo o mesmo
         // tipo de erro de domínio por baixo.
-        return this.rejectAndSave(transaction, WagerFailureCode.ReversalWouldOverdraw, wallet);
+        return this.rejectAndSave(transaction, WagerFailureCode.ReversalWouldOverdraw, wallet, at);
       }
       throw err;
     }
