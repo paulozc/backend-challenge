@@ -2,13 +2,18 @@
   "name": "jungle-gaming",
   "module": "index.ts",
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3",
+    "@mikro-orm/core": "^7.1.14",
+    "@mikro-orm/postgresql": "^7.1.14"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^7"
-  },
-  "dependencies": {
-    "decimal.js": "^10.6.0"
   }
 }
