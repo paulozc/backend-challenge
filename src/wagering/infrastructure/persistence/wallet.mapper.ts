@@ -1,6 +1,6 @@
-import { Wallet } from "../../domain/wallet.ts";
-import { Money } from "../../domain/money.ts";
-import { WalletEntity } from "./entities/wallet.entity.ts";
+import { Wallet } from "../../domain/wallet";
+import { Money } from "../../domain/money";
+import { WalletEntity } from "./entities/wallet.entity";
 
 /** DB (via MikroORM) -> domínio. Usa Wallet.rehydrate() — não revalida transições. */
 export function walletToDomain(entity: WalletEntity): Wallet {
