@@ -10,7 +10,9 @@ import { IdGenerator } from "../ports/idGenerator";
 
 import { Money, type MoneyProps } from "../domain/money";
 import { Wallet, InsufficientFundsError } from "../domain/wallet";
-import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus, type FailureCode } from "../domain/wagerTransaction";
+import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus } from "../domain/wagerTransaction";
+import { FailureCode as DomainFailureCode, getFailureCodeGuidance } from "../domain/failureCode";
+import type { FailureCode, RecommendedAction } from "../domain/failureCode";
 import { LedgerDirection } from "../domain/walletLedgerEntry";
 import { OutboxMessage } from "../domain/outboxMessage";
 import type { IntegrationEvent } from "../domain/integrationEvent";
@@ -22,18 +24,7 @@ import { WalletBalanceChanged } from "../domain/events/walletBalanceChanged";
 
 import { computePayloadHash } from "./payloadHash";
 
-export const WagerFailureCode = {
-  InsufficientFunds: "INSUFFICIENT_FUNDS",
-  ReferenceMismatch: "REFERENCE_MISMATCH",
-  ReferenceNotProcessed: "REFERENCE_NOT_PROCESSED",
-  ReferenceKindNotAllowed: "REFERENCE_KIND_NOT_ALLOWED",
-  ReferenceAmountMismatch: "REFERENCE_AMOUNT_MISMATCH",
-  ReferenceAlreadyReversed: "REFERENCE_ALREADY_REVERSED",
-  // distinto de InsufficientFunds de propósito (seção 7): são situações operacionalmente diferentes
-  ReversalWouldOverdraw: "REVERSAL_WOULD_OVERDRAW",
-  // esgotou o limite de tentativas do worker de reprocessamento (seção 7.1) sem achar a referência
-  ReferenceNeverArrived: "REFERENCE_NEVER_ARRIVED",
-} as const satisfies Record<string, FailureCode>;
+export const WagerFailureCode = DomainFailureCode;
 
 // seção 7.1: limite de tentativas antes de desistir e rejeitar. Combinado com o backoff
 // de WagerTransaction (5s a 10min), dá uma janela de ~20min e ~8 tentativas antes de
@@ -62,6 +53,9 @@ export interface SubmitWagerTransactionOutput {
   status: WagerTransactionStatus;
   balance: MoneyProps;
   idempotentReplay: boolean;
+  /** Só presente quando status === REJECTED — seção 7.2. */
+  failureCode?: FailureCode;
+  recommendedAction?: RecommendedAction;
 }
 
 @Injectable()
@@ -338,6 +332,8 @@ export class ProcessWagerTransactionUseCase {
       status: transaction.status,
       balance: wallet.balance.toJSON(),
       idempotentReplay: false,
+      failureCode: code,
+      recommendedAction: getFailureCodeGuidance(code).action,
     };
   }
 
@@ -543,6 +539,9 @@ export class ProcessWagerTransactionUseCase {
       status: existing.status,
       balance,
       idempotentReplay: true,
+      ...(existing.status === WagerTransactionStatus.Rejected && existing.failureCode
+        ? { failureCode: existing.failureCode, recommendedAction: getFailureCodeGuidance(existing.failureCode).action }
+        : {}),
     };
   }
 }

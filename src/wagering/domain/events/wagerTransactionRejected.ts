@@ -1,6 +1,8 @@
 import { IntegrationEvent, type IntegrationEventProps } from "../integrationEvent";
 import type { WagerTransaction, WagerTransactionKind } from "../wagerTransaction";
 import type { EventContext } from "./eventContext";
+import { getFailureCodeGuidance } from "../failureCode";
+import type { FailureCode, RecommendedAction } from "../failureCode";
 
 export interface WagerTransactionRejectedData {
   transactionId: string;
@@ -8,7 +10,8 @@ export interface WagerTransactionRejectedData {
   providerId: string;
   externalTransactionId: string;
   kind: WagerTransactionKind;
-  failureCode: string;
+  failureCode: FailureCode;
+  recommendedAction: RecommendedAction;
 }
 
 export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionRejectedData> {
@@ -20,6 +23,10 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionR
   }
 
   static from(transaction: WagerTransaction, ctx: EventContext): WagerTransactionRejected {
+    if (!transaction.failureCode) {
+      // invariante: reject() sempre exige um FailureCode — chegar aqui sem um é bug de chamada, não estado de negócio válido
+      throw new Error(`WagerTransactionRejected.from: transação ${transaction.id} está REJECTED sem failureCode`);
+    }
     return new WagerTransactionRejected({
       eventId: ctx.eventId,
       aggregateId: transaction.walletId,
@@ -32,7 +39,8 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionR
         providerId: transaction.providerId,
         externalTransactionId: transaction.externalTransactionId,
         kind: transaction.kind,
-        failureCode: transaction.failureCode ?? "UNKNOWN",
+        failureCode: transaction.failureCode,
+        recommendedAction: getFailureCodeGuidance(transaction.failureCode).action,
       },
     });
   }

@@ -1,4 +1,5 @@
 import type { WagerTransaction } from "../../../domain/wagerTransaction";
+import { getFailureCodeGuidance } from "../../../domain/failureCode";
 
 export function presentWagerTransaction(tx: WagerTransaction) {
   return {
@@ -15,6 +16,7 @@ export function presentWagerTransaction(tx: WagerTransaction) {
     referenceTransactionId: tx.referenceTransactionId ?? null,
     status: tx.status,
     failureCode: tx.failureCode ?? null,
+    recommendedAction: tx.failureCode ? getFailureCodeGuidance(tx.failureCode).action : null,
     createdAt: tx.createdAt.toISOString(),
     processedAt: tx.processedAt?.toISOString() ?? null,
   };

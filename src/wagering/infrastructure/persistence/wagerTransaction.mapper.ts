@@ -1,4 +1,5 @@
 import { WagerTransaction, WagerTransactionKind, WagerTransactionStatus } from "../../domain/wagerTransaction";
+import type { FailureCode } from "../../domain/failureCode";
 import { Money } from "../../domain/money";
 import { WagerTransactionEntity } from "./entities/wagerTransaction.entity";
 
@@ -20,7 +21,10 @@ export function wagerTransactionToDomain(entity: WagerTransactionEntity): WagerT
     createdAt: entity.createdAt,
     status: entity.status as WagerTransactionStatus,
     referenceTransactionId: entity.referenceTransaction ?? undefined,
-    failureCode: entity.failureCode ?? undefined,
+    // a coluna é varchar genérico no banco — o cast é seguro porque a aplicação é a
+    // única gravadora, e sempre grava um dos 8 valores de FailureCode (via WagerFailureCode
+    // / FAILURE_CODE_GUIDANCE, que são exaustivos e fechados). Mesmo padrão de kind/status acima.
+    failureCode: (entity.failureCode ?? undefined) as FailureCode | undefined,
     processedAt: entity.processedAt ?? undefined,
     referenceRetryAttempts: entity.referenceRetryAttempts,
     nextReferenceRetryAt: entity.nextReferenceRetryAt ?? undefined,

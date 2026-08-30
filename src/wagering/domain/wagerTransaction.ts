@@ -1,5 +1,6 @@
 import { Money } from "./money";
 import { LedgerDirection } from "./walletLedgerEntry";
+import type { FailureCode } from "./failureCode";
 
 export enum WagerTransactionKind {
   Opening = "OPENING",
@@ -18,8 +19,7 @@ export enum WagerTransactionStatus {
   Failed = "FAILED",
 }
 
-// taxonomia provisória — formalizamos de verdade na seção 7.2, quando chegar a hora
-export type FailureCode = string;
+// taxonomia formal em ./failureCode.ts (seção 7.2)
 
 // backoff do worker de reprocessamento de PENDING_REFERENCE (seção 7.1) — 5s, 10s, 20s,
 // 40s, 80s, ~2.7min, ~5.3min, 10min(teto) = ~20min de janela total antes de desistir
