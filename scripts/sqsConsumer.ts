@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
+import { MikroORM, RequestContext } from "@mikro-orm/postgresql";
 import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs";
 import { AppModule } from "../src/app.module";
 import { WagerTransactionMessageHandler } from "../src/wagering/infrastructure/messaging/wagerTransactionMessage.handler";
@@ -7,6 +8,7 @@ import { WagerTransactionMessageHandler } from "../src/wagering/infrastructure/m
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const handler = app.get(WagerTransactionMessageHandler);
+  const orm = app.get(MikroORM);
 
   const client = new SQSClient({
     endpoint: process.env.SQS_ENDPOINT,
@@ -42,7 +44,13 @@ async function bootstrap() {
       messages.map(async (message) => {
         inFlight++;
         try {
-          const outcome = await handler.handle(message.MessageId!, message.Body!);
+          // RequestContext.create() garante que TODA operação de banco do handler tenha
+          // contexto ambiente — inclusive a checagem de inbox, que acontece ANTES de
+          // qualquer transactional() (de propósito, pra não pagar o custo de uma
+          // transação inteira só pra confirmar "já processei essa mensagem?").
+          const outcome = await RequestContext.create(orm.em, () =>
+            handler.handle(message.MessageId!, message.Body!),
+          );
           if (outcome === "ack") {
             await client.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: message.ReceiptHandle! }));
           }

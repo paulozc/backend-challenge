@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jungle_gaming
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_local_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # roda uma vez só, na primeira inicialização do volume (mecanismo padrão da imagem oficial)
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jungle_gaming"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: sqs
+      DEBUG: 0
+      # roda uma vez, quando o LocalStack sinaliza "ready" (não na primeira inicialização
+      # do volume como o Postgres — o LocalStack reseta o estado a cada subida por padrão)
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./docker/localstack-init:/etc/localstack/init/ready.d:ro
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  localstack_data:
