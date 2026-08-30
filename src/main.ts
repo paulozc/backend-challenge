@@ -1,7 +1,8 @@
 import "reflect-metadata";
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, HttpAdapterHost } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module";
+import { TransientInfrastructureFailureFilter } from "./wagering/infrastructure/http/transientInfrastructureFailure.filter";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  const { httpAdapter } = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new TransientInfrastructureFailureFilter(httpAdapter));
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
