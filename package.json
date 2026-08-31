@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "test:load": "bun run scripts/loadTest.ts",
     "start": "bun run src/main.ts",
     "migration:up": "bun run scripts/migrate.ts up",
     "migration:down": "bun run scripts/migrate.ts down"

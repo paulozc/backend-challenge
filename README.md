@@ -1,4 +1,4 @@
-# Jungle Gaming — Challange Wagering Processor
+# Jungle Gaming — Wagering Processor
 
 Serviço financeiro distribuído que processa transações de apostas (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) recebidas de múltiplos provedores de jogo, via HTTP e SQS. Construído com correção financeira, concorrência entre múltiplas instâncias e idempotência persistente como requisitos centrais — não como reboco por cima de um CRUD.
 
@@ -67,6 +67,14 @@ Testes unitários de domínio (puro, sem banco):
 bun test src/wagering/domain/test/unit
 ```
 
+### Teste de carga (diferencial)
+
+```bash
+bun run test:load
+```
+
+Requer a aplicação (`bun run start`) e o outbox worker (`bun run scripts/outboxWorker.ts`) rodando em paralelo. Três fases: baseline de throughput/latência, contenção deliberada (concorrência real via `Promise.all` sobre poucas wallets, com veredito explícito de correção), e lag da outbox (criação → publicação). Gera um relatório em `load-test-results.md` com ambiente, metodologia, percentis (p50/p95/p99), taxa de erro e as limitações do experimento — sem meta de RPS, o objetivo é a metodologia e a honestidade da análise.
+
 ## Garantias principais, e como cada uma foi atendida
 
 | Regra do desafio | Como foi atendida |
@@ -129,7 +137,3 @@ Resumo — a justificativa completa de cada uma está no `ARCHITECTURE.md`:
 - **`@mikro-orm/nestjs` não é usado** — incompatível com o NestJS 12 no momento da construção; a integração (inicialização do ORM + isolamento de `EntityManager` por requisição) foi reimplementada manualmente.
 - **Duas transações separadas no consumidor SQS** (não uma só, aninhada) — uma limitação real do MikroORM com transações aninhadas contra Postgres foi descoberta e documentada; a correção depende da proteção por `idempotency_key`, validada explicitamente com um teste que simula o cenário de crash entre as duas transações.
 - **`PESSIMISTIC_PARTIAL_WRITE`** (gera `SELECT ... FOR UPDATE SKIP LOCKED`) para os workers de outbox e reprocessamento — múltiplos workers concorrentes pegam lotes disjuntos, sem esperar uns pelos outros.
-
-## Pendências conhecidas
-
-Ver a seção "Pendente de decisão / a formalizar" no final do [`ARCHITECTURE.md`](./ARCHITECTURE.md) para a lista atualizada — inclui itens como mapeamento HTTP para falha transitória de infraestrutura e a formalização completa da taxonomia de `FailureCode`.
